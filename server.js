@@ -117,6 +117,16 @@ function initPostgresSchema(done) {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
               )`, () => {
+                run(`CREATE TABLE IF NOT EXISTS goals (
+                  id SERIAL PRIMARY KEY,
+                  date VARCHAR(50) NOT NULL,
+                  title VARCHAR(500) NOT NULL,
+                  desired_completion_date VARCHAR(50),
+                  content TEXT,
+                  status VARCHAR(20) DEFAULT 'active',
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )`, () => {
                 db.get('SELECT id FROM configuration WHERE id = 1', [], (err, row) => {
                   if (!err && !row) {
                     db.run('INSERT INTO configuration (id, app_name) VALUES (1, ?)', ['Shop Accountant'], () => {});
@@ -129,6 +139,7 @@ function initPostgresSchema(done) {
                     createDefaultAdmin();
                     if (done) done();
                   });
+                });
                 });
               });
             });
@@ -188,6 +199,7 @@ db.init((err) => {
     app.use('/api/currencies', require('./routes/currencyRoutes'));
     app.use('/api/backup', require('./routes/backupRoutes'));
     app.use('/api/debts', require('./routes/debtRoutes'));
+    app.use('/api/goals', require('./routes/goalsRoutes'));
     app.listen(PORT, HOST, () => {
       console.log(`Server running at http://${HOST}:${PORT}`);
       if (FRONTEND_URL) console.log('CORS allowed for frontend:', FRONTEND_URL);
