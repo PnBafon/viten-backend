@@ -18,9 +18,18 @@ const FRONTEND_URL = process.env.FRONTEND_URL || '';
 const baseDir = getBaseDir();
 const uploadsDir = storage.uploadsDir;
 
-// CORS: allow production frontend when set
-const corsOptions = FRONTEND_URL
-  ? { origin: FRONTEND_URL, credentials: true }
+// CORS: allow production frontend(s); comma-separated for multiple origins
+const allowedOrigins = FRONTEND_URL
+  ? FRONTEND_URL.split(',').map((u) => u.trim()).filter(Boolean)
+  : [];
+const corsOptions = allowedOrigins.length
+  ? {
+      origin: (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+        else cb(new Error('Not allowed by CORS'));
+      },
+      credentials: true,
+    }
   : {};
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -202,7 +211,7 @@ db.init((err) => {
     app.use('/api/goals', require('./routes/goalsRoutes'));
     app.listen(PORT, HOST, () => {
       console.log(`Server running at http://${HOST}:${PORT}`);
-      if (FRONTEND_URL) console.log('CORS allowed for frontend:', FRONTEND_URL);
+      if (allowedOrigins.length) console.log('CORS allowed for frontend(s):', allowedOrigins.join(', '));
     });
   }
   initPostgresSchema(startServer);
