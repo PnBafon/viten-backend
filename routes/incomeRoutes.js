@@ -55,7 +55,7 @@ router.get('/:id', (req, res) => {
 
 // Create new income record
 router.post('/', (req, res) => {
-  const { date, name, pcs, unit_price, description, customer_signature, electronic_signature, client_name, client_phone } = req.body;
+  const { date, name, pcs, unit_price, description, customer_signature, electronic_signature, client_name, client_phone, seller_name } = req.body;
 
   // Validation
   if (!date || !name || !pcs || !unit_price) {
@@ -99,9 +99,9 @@ router.post('/', (req, res) => {
 
       // Insert new income record
       db.run(
-        `INSERT INTO income (date, name, pcs, unit_price, total_price, description, customer_signature, electronic_signature, client_name, client_phone)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [date, name, pcs, unit_price, total_price, description || '', customer_signature || '', electronic_signature || '', client_name || '', client_phone || ''],
+        `INSERT INTO income (date, name, pcs, unit_price, total_price, description, customer_signature, electronic_signature, client_name, client_phone, seller_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [date, name, pcs, unit_price, total_price, description || '', customer_signature || '', electronic_signature || '', client_name || '', client_phone || '', seller_name || ''],
         function(err) {
           if (err) {
             return res.status(500).json({
@@ -151,7 +151,7 @@ router.post('/', (req, res) => {
 // Update income record
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const { date, name, pcs, unit_price, description, customer_signature, electronic_signature, client_name, client_phone } = req.body;
+  const { date, name, pcs, unit_price, description, customer_signature, electronic_signature, client_name, client_phone, seller_name } = req.body;
 
   // Check if record exists
   db.get('SELECT * FROM income WHERE id = ?', [id], (err, record) => {
@@ -188,6 +188,7 @@ router.put('/:id', (req, res) => {
         electronic_signature = COALESCE(?, electronic_signature),
         client_name = COALESCE(?, client_name),
         client_phone = COALESCE(?, client_phone),
+        seller_name = COALESCE(?, seller_name),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
       [
@@ -201,6 +202,7 @@ router.put('/:id', (req, res) => {
         electronic_signature !== undefined ? electronic_signature : null,
         client_name !== undefined ? client_name : null,
         client_phone !== undefined ? client_phone : null,
+        seller_name !== undefined ? seller_name : null,
         id
       ],
       function(err) {

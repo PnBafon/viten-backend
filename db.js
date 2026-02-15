@@ -56,6 +56,9 @@ function init(callback) {
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
   });
   _client = client;
+  client.on('error', (err) => {
+    console.error('PostgreSQL client error:', err.message);
+  });
   client.connect((err) => {
     if (err) return callback(err);
     ready = true;

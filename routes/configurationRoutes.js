@@ -2,9 +2,12 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const db = require('../db');
 const storage = require('../storage');
+
+const ADMIN_USERNAME = 'admin1234';
 
 const uploadsDir = path.join(storage.uploadsDir, 'logos');
 if (!storage.useFtp && !fs.existsSync(uploadsDir)) {
@@ -51,10 +54,19 @@ function initializeConfigTable() {
       if (err) return;
       const columns = (rows || []).map(row => row.name);
       if (!columns.includes('location')) {
-        db.run('ALTER TABLE configuration ADD COLUMN location TEXT DEFAULT NULL', []);
+        db.run('ALTER TABLE configuration ADD COLUMN location TEXT DEFAULT NULL', [], () => {});
       }
       if (!columns.includes('items')) {
-        db.run('ALTER TABLE configuration ADD COLUMN items TEXT DEFAULT NULL', []);
+        db.run('ALTER TABLE configuration ADD COLUMN items TEXT DEFAULT NULL', [], () => {});
+      }
+      if (!columns.includes('goal_pin_hash')) {
+        db.run('ALTER TABLE configuration ADD COLUMN goal_pin_hash TEXT DEFAULT NULL', [], () => {});
+      }
+      if (!columns.includes('receipt_thank_you_message')) {
+        db.run('ALTER TABLE configuration ADD COLUMN receipt_thank_you_message TEXT DEFAULT NULL', [], () => {});
+      }
+      if (!columns.includes('receipt_items_received_message')) {
+        db.run('ALTER TABLE configuration ADD COLUMN receipt_items_received_message TEXT DEFAULT NULL', [], () => {});
       }
       db.get('SELECT id FROM configuration WHERE id = 1', [], (err, row) => {
         if (!err && !row) {
@@ -68,7 +80,7 @@ function initializeConfigTable() {
 initializeConfigTable();
 
 router.get('/', (req, res) => {
-  db.get('SELECT app_name, logo_path, location, items FROM configuration WHERE id = 1', [], (err, row) => {
+  db.get('SELECT app_name, logo_path, location, items, receipt_thank_you_message, receipt_items_received_message FROM configuration WHERE id = 1', [], (err, row) => {
     if (err) {
       return res.status(500).json({ success: false, message: 'Database error' });
     }
@@ -76,7 +88,13 @@ router.get('/', (req, res) => {
       app_name: row?.app_name || 'Shop Accountant',
       logo_path: row?.logo_path || null,
       location: row?.location || null,
-      items: row?.items ? JSON.parse(row.items) : []
+      items: row?.items ? JSON.parse(row.items) : [],
+      receipt_thank_you_message: row?.receipt_thank_you_message != null && row.receipt_thank_you_message !== ''
+        ? row.receipt_thank_you_message
+        : 'Thank you for your business',
+      receipt_items_received_message: row?.receipt_items_received_message != null && row.receipt_items_received_message !== ''
+        ? row.receipt_items_received_message
+        : '{customer} received the above items in good condition.'
     };
     if (config.logo_path) {
       config.logo_url = storage.resolveLogoUrl(config.logo_path);
@@ -188,6 +206,94 @@ router.put('/items', (req, res) => {
       res.json({ success: true, message: 'Items updated successfully' });
     }
   );
+});
+
+router.put('/receipt-thank-you', (req, res) => {
+  const { receipt_thank_you_message } = req.body;
+  const value = typeof receipt_thank_you_message === 'string' ? receipt_thank_you_message.trim() : null;
+  db.run(
+    'UPDATE configuration SET receipt_thank_you_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+    [value || null],
+    function(err) {
+      if (err) return res.status(500).json({ success: false, message: 'Error updating receipt thank-you message' });
+      res.json({ success: true, message: 'Thank-you message updated successfully' });
+    }
+  );
+});
+
+router.put('/receipt-items-received', (req, res) => {
+  const { receipt_items_received_message } = req.body;
+  const value = typeof receipt_items_received_message === 'string' ? receipt_items_received_message.trim() : null;
+  db.run(
+    'UPDATE configuration SET receipt_items_received_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+    [value || null],
+    function(err) {
+      if (err) return res.status(500).json({ success: false, message: 'Error updating items-received message' });
+      res.json({ success: true, message: 'Items-received message updated successfully' });
+    }
+  );
+});
+
+// --- PIN settings (Goal component). Set/update is admin-only. ---
+
+router.get('/pin/goal', (req, res) => {
+  db.get('SELECT goal_pin_hash FROM configuration WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    const hasPin = !!(row && row.goal_pin_hash);
+    res.json({ success: true, hasPin });
+  });
+});
+
+router.put('/pin/goal', (req, res) => {
+  const username = req.headers['x-user-username'] || req.body.username;
+  if (!username || username !== ADMIN_USERNAME) {
+    return res.status(403).json({ success: false, message: 'Only admin can set or change the Goal PIN' });
+  }
+  db.get('SELECT id FROM users WHERE username = ?', [username], (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    if (!user) return res.status(403).json({ success: false, message: 'User not found' });
+
+    const { pin } = req.body;
+    if (pin === null || pin === undefined || pin === '') {
+      db.run(
+        'UPDATE configuration SET goal_pin_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+        [],
+        function(runErr) {
+          if (runErr) return res.status(500).json({ success: false, message: 'Error clearing PIN' });
+          res.json({ success: true, message: 'Goal PIN removed' });
+        }
+      );
+      return;
+    }
+    const pinStr = String(pin).trim();
+    if (pinStr.length < 4) {
+      return res.status(400).json({ success: false, message: 'PIN must be at least 4 characters' });
+    }
+    const hash = bcrypt.hashSync(pinStr, 10);
+    db.run(
+      'UPDATE configuration SET goal_pin_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+      [hash],
+      function(runErr) {
+        if (runErr) return res.status(500).json({ success: false, message: 'Error saving PIN' });
+        res.json({ success: true, message: 'Goal PIN set successfully' });
+      }
+    );
+  });
+});
+
+router.post('/pin/verify-goal', (req, res) => {
+  const { pin } = req.body;
+  if (pin === undefined || pin === null) {
+    return res.status(400).json({ success: false, valid: false, message: 'PIN required' });
+  }
+  db.get('SELECT goal_pin_hash FROM configuration WHERE id = 1', [], (err, row) => {
+    if (err) return res.status(500).json({ success: false, valid: false, message: 'Database error' });
+    if (!row || !row.goal_pin_hash) {
+      return res.json({ success: true, valid: true });
+    }
+    const valid = bcrypt.compareSync(String(pin), row.goal_pin_hash);
+    res.json({ success: true, valid });
+  });
 });
 
 module.exports = router;

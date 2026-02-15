@@ -23,6 +23,33 @@ router.get('/', (req, res) => {
   );
 });
 
+// Get debt by receipt number (e.g. DEBT-000001) for repay flow
+router.get('/by-receipt/:receiptNo', (req, res) => {
+  const receiptNo = (req.params.receiptNo || '').trim().toUpperCase();
+  const match = receiptNo.match(/^DEBT-(\d+)$/);
+  if (!match) {
+    return res.status(400).json({ success: false, message: 'Invalid receipt number. Use format DEBT-000001' });
+  }
+  const debtId = parseInt(match[1], 10);
+  db.get('SELECT * FROM debts WHERE id = ?', [debtId], (err, debt) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    if (!debt) return res.status(404).json({ success: false, message: 'Debt not found for this receipt number' });
+    db.all(
+      'SELECT id, payment_date, amount, receipt_number, created_at FROM debt_repayments WHERE debt_id = ? ORDER BY payment_date ASC, created_at ASC',
+      [debtId],
+      (err2, payments) => {
+        if (err2) return res.status(500).json({ success: false, message: 'Database error' });
+        res.json({
+          success: true,
+          debt,
+          payments: payments || [],
+          balance_owed: debt.balance_owed
+        });
+      }
+    );
+  });
+});
+
 // Get single debt record
 router.get('/:id', (req, res) => {
   const { id } = req.params;
@@ -55,7 +82,7 @@ router.get('/:id', (req, res) => {
 
 // Create new debt record
 router.post('/', (req, res) => {
-  const { date, name, pcs, unit_price, total_price, amount_payable_now, description, customer_signature, electronic_signature, client_name, client_phone } = req.body;
+  const { date, name, pcs, unit_price, total_price, amount_payable_now, description, customer_signature, electronic_signature, client_name, client_phone, seller_name } = req.body;
 
   // Validation
   if (!date || !name || !pcs || !unit_price || total_price === undefined) {
@@ -101,8 +128,8 @@ router.post('/', (req, res) => {
 
       // Insert debt record
       db.run(
-        `INSERT INTO debts (date, name, pcs, unit_price, total_price, amount_payable_now, balance_owed, description, customer_signature, electronic_signature, client_name, client_phone)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO debts (date, name, pcs, unit_price, total_price, amount_payable_now, balance_owed, description, customer_signature, electronic_signature, client_name, client_phone, seller_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           date,
           name,
@@ -115,7 +142,8 @@ router.post('/', (req, res) => {
           customer_signature || '',
           electronic_signature || '',
           client_name || '',
-          client_phone || ''
+          client_phone || '',
+          seller_name || ''
         ],
         function(err) {
           if (err) {
@@ -166,7 +194,7 @@ router.post('/', (req, res) => {
 // Update debt record
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const { date, name, pcs, unit_price, total_price, amount_payable_now, description, customer_signature, electronic_signature, client_name, client_phone } = req.body;
+  const { date, name, pcs, unit_price, total_price, amount_payable_now, description, customer_signature, electronic_signature, client_name, client_phone, seller_name } = req.body;
 
   // Check if record exists
   db.get('SELECT * FROM debts WHERE id = ?', [id], (err, record) => {
@@ -204,6 +232,7 @@ router.put('/:id', (req, res) => {
         electronic_signature = COALESCE(?, electronic_signature),
         client_name = COALESCE(?, client_name),
         client_phone = COALESCE(?, client_phone),
+        seller_name = COALESCE(?, seller_name),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
       [
@@ -219,6 +248,7 @@ router.put('/:id', (req, res) => {
         electronic_signature !== undefined ? electronic_signature : null,
         client_name !== undefined ? client_name : null,
         client_phone !== undefined ? client_phone : null,
+        seller_name !== undefined ? seller_name : null,
         id
       ],
       function(err) {

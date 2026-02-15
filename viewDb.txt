@@ -8,6 +8,7 @@ Method 1: Using Command Prompt or PowerShell
 Step 1: Find the Process ID (PID)
 Open PowerShell or Command Prompt and run:
 netstat -ano | findstr :5000
+
 This shows the process using port 5000. Note the PID in the last column (e.g., 19444).
 Step 2: Kill the Process
 Run:

@@ -14,14 +14,18 @@ const storage = require('./storage');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '127.0.0.1';
+const isDev = process.env.NODE_ENV !== 'production';
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
 const baseDir = getBaseDir();
 const uploadsDir = storage.uploadsDir;
 
-// CORS: allow production frontend(s); comma-separated for multiple origins
+// CORS: in development allow localhost; in production allow FRONTEND_URL(s) only
 const allowedOrigins = FRONTEND_URL
   ? FRONTEND_URL.split(',').map((u) => u.trim()).filter(Boolean)
   : [];
+if (isDev) {
+  allowedOrigins.push('http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173');
+}
 const corsOptions = allowedOrigins.length
   ? {
       origin: (origin, cb) => {
@@ -65,6 +69,7 @@ function initPostgresSchema(done) {
       electronic_signature TEXT,
       client_name VARCHAR(255),
       client_phone VARCHAR(100),
+      seller_name VARCHAR(255),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`, () => {
@@ -91,6 +96,7 @@ function initPostgresSchema(done) {
           electronic_signature TEXT,
           client_name VARCHAR(255),
           client_phone VARCHAR(100),
+          seller_name VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`, () => {
@@ -136,6 +142,18 @@ function initPostgresSchema(done) {
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )`, () => {
+                run(`CREATE TABLE IF NOT EXISTS debt_repayments (
+                  id SERIAL PRIMARY KEY,
+                  debt_id INTEGER NOT NULL,
+                  payment_date VARCHAR(50) NOT NULL,
+                  amount DOUBLE PRECISION NOT NULL,
+                  receipt_number VARCHAR(20),
+                  seller_name VARCHAR(255),
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )`, () => {
+                run('ALTER TABLE income ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
+                run('ALTER TABLE debts ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
                 db.get('SELECT id FROM configuration WHERE id = 1', [], (err, row) => {
                   if (!err && !row) {
                     db.run('INSERT INTO configuration (id, app_name) VALUES (1, ?)', ['Shop Accountant'], () => {});
@@ -149,7 +167,6 @@ function initPostgresSchema(done) {
                     if (done) done();
                   });
                 });
-                });
               });
             });
           });
@@ -157,6 +174,8 @@ function initPostgresSchema(done) {
       });
     });
   });
+  });
+});
 }
 
 function createDefaultAdmin() {
@@ -208,6 +227,7 @@ db.init((err) => {
     app.use('/api/currencies', require('./routes/currencyRoutes'));
     app.use('/api/backup', require('./routes/backupRoutes'));
     app.use('/api/debts', require('./routes/debtRoutes'));
+    app.use('/api/debt-repayments', require('./routes/debtRepaymentRoutes'));
     app.use('/api/goals', require('./routes/goalsRoutes'));
     app.listen(PORT, HOST, () => {
       console.log(`Server running at http://${HOST}:${PORT}`);
