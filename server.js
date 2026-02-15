@@ -111,6 +111,7 @@ function initPostgresSchema(done) {
             supplier_name VARCHAR(255),
             available_stock INTEGER DEFAULT 0,
             stock_deficiency_threshold INTEGER DEFAULT 0,
+            image_path TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           )`, () => {
@@ -154,6 +155,7 @@ function initPostgresSchema(done) {
                 )`, () => {
                 run('ALTER TABLE income ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
                 run('ALTER TABLE debts ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
+                run('ALTER TABLE purchases ADD COLUMN IF NOT EXISTS image_path TEXT DEFAULT NULL', () => {});
                 db.get('SELECT id FROM configuration WHERE id = 1', [], (err, row) => {
                   if (!err && !row) {
                     db.run('INSERT INTO configuration (id, app_name) VALUES (1, ?)', ['Shop Accountant'], () => {});

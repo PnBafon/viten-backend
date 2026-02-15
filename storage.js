@@ -38,15 +38,44 @@ async function saveFile(buffer, relativePath) {
     const Client = require('basic-ftp').Client;
     const client = new Client(undefined, ftpConfig.secure);
     try {
+      console.log('FTP Config:', {
+        host: ftpConfig.host,
+        port: ftpConfig.port,
+        user: ftpConfig.user,
+        secure: ftpConfig.secure
+      });
+      console.log('Connecting to FTP server...');
       await client.access(ftpConfig);
+      console.log('Connected to FTP server');
+      
       const remotePath = path.posix.join(ftpBaseDir, normalized);
+      console.log('Remote path:', remotePath);
+      
       const dir = path.posix.dirname(remotePath);
+      console.log('Ensuring directory:', dir);
       await client.ensureDir(dir);
+      
+      console.log('Uploading file, size:', buffer.length, 'bytes');
       await client.uploadFrom(Readable.from(Buffer.from(buffer)), remotePath);
+      console.log('File uploaded successfully');
+      
       const publicUrl = ftpPublicBaseUrl ? `${ftpPublicBaseUrl}/${normalized}` : remotePath;
+      console.log('Public URL:', publicUrl);
       return { path: publicUrl, publicUrl };
+    } catch (ftpErr) {
+      console.error('FTP error details:', {
+        message: ftpErr.message,
+        code: ftpErr.code,
+        status: ftpErr.status,
+        stack: ftpErr.stack
+      });
+      throw ftpErr;
     } finally {
-      client.close();
+      try {
+        client.close();
+      } catch (e) {
+        console.warn('Error closing FTP connection:', e.message);
+      }
     }
   }
   const localPath = path.join(uploadsDir, normalized);
