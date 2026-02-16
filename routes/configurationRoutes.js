@@ -118,44 +118,102 @@ router.put('/app-name', (req, res) => {
   );
 });
 
-router.post('/logo', upload.single('logo'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No file uploaded' });
-  }
-
-  const buffer = req.file.buffer || (req.file.path ? fs.readFileSync(req.file.path) : null);
-  if (!buffer) return res.status(400).json({ success: false, message: 'No file data' });
-  const filename = req.file.filename || 'logo-' + Date.now() + path.extname(req.file.originalname || '.png');
-  const relativePath = 'logos/' + filename;
-
-  db.get('SELECT logo_path FROM configuration WHERE id = 1', [], async (err, row) => {
-    if (err) {
-      return res.status(500).json({ success: false, message: 'Database error' });
-    }
-    const oldPath = row && row.logo_path;
-    storage.deleteFile(oldPath);
-
-    try {
-      const { path: storedPath, publicUrl } = await storage.saveFile(buffer, relativePath);
-      db.run(
-        'UPDATE configuration SET logo_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-        [storedPath],
-        function(updateErr) {
-          if (updateErr) {
-            storage.deleteFile(storedPath);
-            return res.status(500).json({ success: false, message: 'Error updating logo' });
-          }
-          res.json({
-            success: true,
-            message: 'Logo uploaded successfully',
-            logo_url: storage.resolveLogoUrl(storedPath)
-          });
-        }
-      );
-    } catch (e) {
-      return res.status(500).json({ success: false, message: 'Upload failed: ' + e.message });
-    }
+// Multer middleware wrapper with error handling
+const handleLogoUpload = (req, res, next) => {
+  console.log('\n=== Logo Upload Request ===');
+  console.log('Headers:', {
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length']
   });
+  console.log('Query:', req.query);
+  
+  const uploader = upload.single('logo');
+  uploader(req, res, (err) => {
+    console.log('Multer callback - Error:', err);
+    console.log('Multer callback - req.file:', req.file ? { fieldname: req.file.fieldname, originalname: req.file.originalname, size: req.file.size } : null);
+    
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({ 
+        success: false, 
+        message: err.message || 'File upload error' 
+      });
+    }
+    if (!req.file) {
+      console.warn('No file in request');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No file uploaded. Please select an image file.' 
+      });
+    }
+    console.log('File uploaded successfully:', req.file.originalname);
+    next();
+  });
+};
+
+router.post('/logo', handleLogoUpload, async (req, res) => {
+  try {
+    console.log('=== Logo POST Handler ===');
+    console.log('req.file:', req.file);
+    
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    console.log('Reading file buffer...');
+    const buffer = req.file.buffer || (req.file.path ? fs.readFileSync(req.file.path) : null);
+    if (!buffer) {
+      return res.status(400).json({ success: false, message: 'Failed to read file data' });
+    }
+
+    console.log('File size:', buffer.length, 'bytes');
+    const filename = req.file.filename || 'logo-' + Date.now() + path.extname(req.file.originalname || '.png');
+    const relativePath = 'logos/' + filename;
+    console.log('Relative path:', relativePath);
+
+    db.get('SELECT logo_path FROM configuration WHERE id = 1', [], async (err, row) => {
+      if (err) {
+        console.error('DB error:', err);
+        return res.status(500).json({ success: false, message: 'Database error' });
+      }
+      const oldPath = row && row.logo_path;
+      if (oldPath) {
+        console.log('Deleting old logo:', oldPath);
+        storage.deleteFile(oldPath);
+      }
+
+      try {
+        console.log('Saving file to storage...');
+        const { path: storedPath, publicUrl } = await storage.saveFile(buffer, relativePath);
+        console.log('Storage returned - storedPath:', storedPath, 'publicUrl:', publicUrl);
+        
+        console.log('Updating database with new logo path...');
+        db.run(
+          'UPDATE configuration SET logo_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+          [storedPath],
+          function(updateErr) {
+            if (updateErr) {
+              console.error('DB update error:', updateErr);
+              storage.deleteFile(storedPath);
+              return res.status(500).json({ success: false, message: 'Error updating logo in database' });
+            }
+            console.log('Logo saved successfully. Responding to client...');
+            res.json({
+              success: true,
+              message: 'Logo uploaded successfully',
+              logo_url: storage.resolveLogoUrl(storedPath)
+            });
+          }
+        );
+      } catch (e) {
+        console.error('Storage error:', e);
+        return res.status(500).json({ success: false, message: 'Upload failed: ' + e.message });
+      }
+    });
+  } catch (error) {
+    console.error('Route error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
 });
 
 router.get('/logo/:filename', (req, res) => {
