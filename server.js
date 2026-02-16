@@ -231,6 +231,7 @@ db.init((err) => {
     app.use('/api/debts', require('./routes/debtRoutes'));
     app.use('/api/debt-repayments', require('./routes/debtRepaymentRoutes'));
     app.use('/api/goals', require('./routes/goalsRoutes'));
+    app.use('/api/gain', require('./routes/gainRoutes'));
     app.listen(PORT, HOST, () => {
       console.log(`Server running at http://${HOST}:${PORT}`);
       if (allowedOrigins.length) console.log('CORS allowed for frontend(s):', allowedOrigins.join(', '));
