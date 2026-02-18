@@ -74,6 +74,10 @@ router.get('/', (req, res) => {
         } else {
           rec.image_url = null;
         }
+        // debug: show what image_url is returned for this record (helps trace missing images)
+        if (process.env.DEBUG_UPLOADS === 'true') {
+          console.log('[purchasesRoutes] returning purchase record image_url:', { id: rec.id, image_path: rec.image_path, image_url: rec.image_url });
+        }
         return rec;
       });
       res.json({ success: true, purchases: mapped });
@@ -137,6 +141,7 @@ router.post('/', handleImageUpload, async (req, res) => {
         const filename = uploaded.filename || 'purchase-' + Date.now() + path.extname(uploaded.originalname || '.png');
         const relativePath = 'backups/' + filename; // save under backups for debugging
         const saved = await storage.saveFile(buffer, relativePath);
+        console.log('[purchasesRoutes] Saved image for purchase:', { originalname: uploaded.originalname, stored: saved });
         imagePath = saved.path;
       }
     }

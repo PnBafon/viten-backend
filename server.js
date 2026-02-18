@@ -36,7 +36,17 @@ const corsOptions = allowedOrigins.length
     }
   : {};
 app.use(cors(corsOptions));
-app.use(express.json());
+
+// Apply express.json() only to non-multipart requests by checking Content-Type upfront
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  // Skip body parsing for multipart - let multer handle it
+  if (contentType.includes('multipart/form-data')) {
+    console.log('[Middleware] Skipping JSON parser for multipart request:', req.method, req.path);
+    return next();
+  }
+  express.json({ limit: '50mb' })(req, res, next);
+});
 
 // Local uploads only when not using FTP
 if (!storage.useFtp) {

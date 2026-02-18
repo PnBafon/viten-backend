@@ -14,14 +14,34 @@ if (!storage.useFtp && !fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+console.log('[Config Routes Init] useFtp:', storage.useFtp);
+console.log('[Config Routes Init] uploadsDir:', uploadsDir);
+console.log('[Config Routes Init] uploadsDir exists:', fs.existsSync(uploadsDir));
+
 // Use memory storage when uploading to FTP so we can pass buffer to storage.saveFile
 const multerStorage = storage.useFtp
   ? multer.memoryStorage()
   : multer.diskStorage({
-      destination: (req, file, cb) => { cb(null, uploadsDir); },
+      destination: (req, file, cb) => {
+        console.log(`[Multer dest] uploadsDir exists: ${fs.existsSync(uploadsDir)}`);
+        if (!fs.existsSync(uploadsDir)) {
+          console.log(`[Multer dest] Creating directory: ${uploadsDir}`);
+          try {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+            console.log(`[Multer dest] Directory created successfully`);
+          } catch (err) {
+            console.error(`[Multer dest] Failed to create directory:`, err);
+            return cb(err);
+          }
+        }
+        console.log(`[Multer dest] Setting destination to: ${uploadsDir}`);
+        cb(null, uploadsDir);
+      },
       filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'logo-' + uniqueSuffix + path.extname(file.originalname));
+        const newFilename = 'logo-' + uniqueSuffix + path.extname(file.originalname);
+        console.log(`[Multer filename] Generated: ${newFilename}`);
+        cb(null, newFilename);
       }
     });
 
@@ -29,10 +49,21 @@ const upload = multer({
   storage: multerStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
+    console.log(`[Multer fileFilter] File received - fieldname: ${file.fieldname}, originalname: ${file.originalname}, mimetype: ${file.mimetype}`);
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const ext = path.extname(file.originalname).toLowerCase();
-    const ok = allowedTypes.test(ext) && allowedTypes.test(file.mimetype);
-    cb(ok ? null : new Error('Only image files are allowed!'));
+    const ext = path.extname(file.originalname).toLowerCase().replace(/^\./, ''); // remove leading dot
+    const mimetype = file.mimetype || '';
+    console.log(`[Multer fileFilter] ext=${ext}, mimetype=${mimetype}`);
+    const ok = allowedTypes.test(ext) && allowedTypes.test(mimetype);
+    console.log(`[Multer fileFilter] Validation result: ok=${ok}`);
+    if (ok) {
+      console.log(`[Multer fileFilter] File ACCEPTED`);
+      cb(null, true);
+    } else {
+      const err = new Error('Only image files are allowed!');
+      console.log(`[Multer fileFilter] File REJECTED:`, err.message);
+      cb(err);
+    }
   }
 });
 
@@ -118,86 +149,79 @@ router.put('/app-name', (req, res) => {
   );
 });
 
-// Multer middleware wrapper with error handling
-const handleLogoUpload = (req, res, next) => {
-  console.log('\n=== Logo Upload Request ===');
-  console.log('Headers:', {
-    'content-type': req.headers['content-type'],
-    'content-length': req.headers['content-length']
-  });
-  console.log('Query:', req.query);
-  
-  const uploader = upload.single('logo');
-  uploader(req, res, (err) => {
-    console.log('Multer callback - Error:', err);
-    console.log('Multer callback - req.file:', req.file ? { fieldname: req.file.fieldname, originalname: req.file.originalname, size: req.file.size } : null);
-    
+// Multer middleware with error handling wrapper
+const logoUploadMiddleware = (req, res, next) => {
+  console.log('[Logo middleware] Invoking multer...');
+  upload.single('logo')(req, res, (err) => {
     if (err) {
-      console.error('Multer error:', err);
-      return res.status(400).json({ 
-        success: false, 
-        message: err.message || 'File upload error' 
-      });
+      console.error('[Logo middleware] Multer error:', err.message);
+      return res.status(400).json({ success: false, message: 'Upload error: ' + err.message });
     }
-    if (!req.file) {
-      console.warn('No file in request');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No file uploaded. Please select an image file.' 
-      });
-    }
-    console.log('File uploaded successfully:', req.file.originalname);
+    console.log('[Logo middleware] Multer completed, req.file:', req.file ? 'present' : 'NULL');
     next();
   });
 };
 
-router.post('/logo', handleLogoUpload, async (req, res) => {
+router.post('/logo', logoUploadMiddleware, async (req, res) => {
   try {
-    console.log('=== Logo POST Handler ===');
-    console.log('req.file:', req.file);
+    console.log('[Logo POST] Handler invoked');
+    console.log('[Logo POST] storage.useFtp:', storage.useFtp);
     
     if (!req.file) {
+      console.warn('[Logo POST] req.file is NULL');
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    console.log('Reading file buffer...');
+    console.log('[Logo POST] req.file properties:', {
+      fieldname: req.file.fieldname,
+      originalname: req.file.originalname,
+      encoding: req.file.encoding,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      destination: req.file.destination || 'N/A (using memory)',
+      filename: req.file.filename || 'N/A (using memory)',
+      pathExists: !!req.file.path,
+      bufferExists: !!req.file.buffer,
+      bufferLength: req.file.buffer ? req.file.buffer.length : 'N/A'
+    });
+
     const buffer = req.file.buffer || (req.file.path ? fs.readFileSync(req.file.path) : null);
     if (!buffer) {
+      console.error('[Logo POST] No buffer available');
       return res.status(400).json({ success: false, message: 'Failed to read file data' });
     }
 
-    console.log('File size:', buffer.length, 'bytes');
-    const filename = req.file.filename || 'logo-' + Date.now() + path.extname(req.file.originalname || '.png');
+    console.log(`[Logo POST] Ready to save: ${buffer.length} bytes`);
+    const filename = 'logo-' + Date.now() + path.extname(req.file.originalname || '.png');
     const relativePath = 'logos/' + filename;
-    console.log('Relative path:', relativePath);
 
     db.get('SELECT logo_path FROM configuration WHERE id = 1', [], async (err, row) => {
       if (err) {
-        console.error('DB error:', err);
+        console.error('[Logo POST] DB select error:', err);
         return res.status(500).json({ success: false, message: 'Database error' });
       }
+
       const oldPath = row && row.logo_path;
       if (oldPath) {
-        console.log('Deleting old logo:', oldPath);
+        console.log('[Logo POST] Deleting old logo:', oldPath);
         storage.deleteFile(oldPath);
       }
 
       try {
-        console.log('Saving file to storage...');
+        console.log('[Logo POST] Saving to storage...');
         const { path: storedPath, publicUrl } = await storage.saveFile(buffer, relativePath);
-        console.log('Storage returned - storedPath:', storedPath, 'publicUrl:', publicUrl);
+        console.log('[Logo POST] Saved successfully:', { storedPath, publicUrl });
         
-        console.log('Updating database with new logo path...');
         db.run(
           'UPDATE configuration SET logo_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
           [storedPath],
           function(updateErr) {
             if (updateErr) {
-              console.error('DB update error:', updateErr);
+              console.error('[Logo POST] DB update error:', updateErr);
               storage.deleteFile(storedPath);
-              return res.status(500).json({ success: false, message: 'Error updating logo in database' });
+              return res.status(500).json({ success: false, message: 'Failed to save logo' });
             }
-            console.log('Logo saved successfully. Responding to client...');
+            console.log('[Logo POST] DB updated, responding with success');
             res.json({
               success: true,
               message: 'Logo uploaded successfully',
@@ -206,12 +230,43 @@ router.post('/logo', handleLogoUpload, async (req, res) => {
           }
         );
       } catch (e) {
-        console.error('Storage error:', e);
+        console.error('[Logo POST] Storage save error:', e);
         return res.status(500).json({ success: false, message: 'Upload failed: ' + e.message });
       }
     });
   } catch (error) {
-    console.error('Route error:', error);
+    console.error('[Logo POST] Handler error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// Delete logo
+router.delete('/logo', (req, res) => {
+  try {
+    db.get('SELECT logo_path FROM configuration WHERE id = 1', [], (err, row) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: 'Database error' });
+      }
+
+      if (!row || !row.logo_path) {
+        return res.status(400).json({ success: false, message: 'No logo to delete' });
+      }
+
+      const oldPath = row.logo_path;
+      storage.deleteFile(oldPath);
+
+      db.run(
+        'UPDATE configuration SET logo_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+        [],
+        function(updateErr) {
+          if (updateErr) {
+            return res.status(500).json({ success: false, message: 'Failed to delete logo' });
+          }
+          res.json({ success: true, message: 'Logo deleted successfully' });
+        }
+      );
+    });
+  } catch (error) {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
