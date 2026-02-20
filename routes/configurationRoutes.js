@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { Readable } = require('stream');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
@@ -128,6 +129,7 @@ router.get('/', (req, res) => {
         : '{customer} received the above items in good condition.'
     };
     if (config.logo_path) {
+      // Return the actual URL: FTP URL for remote, or local API path for local files
       config.logo_url = storage.resolveLogoUrl(config.logo_path);
     }
     res.json({ success: true, configuration: config });
@@ -283,6 +285,33 @@ router.get('/logo/:filename', (req, res) => {
     }
     const localPath = storage.getLocalPath(stored) || path.join(uploadsDir, filename);
     if (fs.existsSync(localPath)) {
+      return res.sendFile(path.resolve(localPath));
+    }
+    res.status(404).json({ success: false, message: 'Logo not found' });
+  });
+});
+
+// Proxy route for logo - streams from remote (FTP) or local, avoids CORS/hotlink issues
+router.get('/logo-image', (req, res) => {
+  db.get('SELECT logo_path FROM configuration WHERE id = 1', [], async (err, row) => {
+    if (err || !row || !row.logo_path) {
+      return res.status(404).json({ success: false, message: 'Logo not found' });
+    }
+    const stored = row.logo_path;
+    if (storage.isRemoteUrl(stored)) {
+      try {
+        const resp = await fetch(stored, { headers: { 'Accept': 'image/*' } });
+        if (!resp.ok) throw new Error(`Upstream ${resp.status}`);
+        res.set('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
+        Readable.fromWeb(resp.body).pipe(res);
+      } catch (e) {
+        console.error('[Logo proxy] Fetch error:', e.message);
+        return res.status(502).json({ success: false, message: 'Failed to load logo' });
+      }
+      return;
+    }
+    const localPath = storage.getLocalPath(stored);
+    if (localPath && fs.existsSync(localPath)) {
       return res.sendFile(path.resolve(localPath));
     }
     res.status(404).json({ success: false, message: 'Logo not found' });

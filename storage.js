@@ -20,6 +20,7 @@ const ftpConfig = useFtp ? {
 } : null;
 
 const ftpBaseDir = (process.env.FTP_BASE_DIR || '/').replace(/\/+$/, '') || '';
+// FTP_PUBLIC_BASE_URL or FTP_BASE_URL must be set when using FTP (e.g. https://yoursite.com/files)
 const ftpPublicBaseUrl = (process.env.FTP_PUBLIC_BASE_URL || process.env.FTP_BASE_URL || '').replace(/\/+$/, '');
 
 function ensureLocalDir(dirPath) {
@@ -36,7 +37,7 @@ async function saveFile(buffer, relativePath) {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
   if (useFtp && ftpConfig) {
     const Client = require('basic-ftp').Client;
-    const client = new Client(undefined, ftpConfig.secure);
+    const client = new Client(60000); // 60s timeout
     try {
       console.log('FTP Config:', {
         host: ftpConfig.host,
@@ -59,7 +60,9 @@ async function saveFile(buffer, relativePath) {
       await client.uploadFrom(Readable.from(Buffer.from(buffer)), remotePath);
       console.log('File uploaded successfully');
       
-      const publicUrl = ftpPublicBaseUrl ? `${ftpPublicBaseUrl}/${normalized}` : remotePath;
+      // Public URL must match the actual path on the server (include ftpBaseDir e.g. /viten-shop)
+      const pathForUrl = remotePath.replace(/^\/+/, '');
+      const publicUrl = ftpPublicBaseUrl ? `${ftpPublicBaseUrl}/${pathForUrl}` : remotePath;
       console.log('Public URL:', publicUrl);
       return { path: publicUrl, publicUrl };
     } catch (ftpErr) {
@@ -132,5 +135,6 @@ module.exports = {
     ensureLocalDir(uploadsDir);
     ensureLocalDir(path.join(uploadsDir, 'backups'));
     ensureLocalDir(path.join(uploadsDir, 'logos'));
+    ensureLocalDir(path.join(uploadsDir, 'purchases'));
   }
 };
