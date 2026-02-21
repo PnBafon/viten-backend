@@ -79,6 +79,7 @@ router.get('/', (req, res) => {
       // Frontend uses database URL to display: image_url is the value stored in image_path (FTP URL or local URL)
       const mapped = (records || []).map(r => {
         const rec = { ...r };
+        const assetUrl = `/api/purchases/asset/${rec.id}`;
         if (rec.image_path) {
           if (storage.isRemoteUrl(rec.image_path)) {
             rec.image_url = rec.image_path; // FTP: use database URL as-is
@@ -86,9 +87,9 @@ router.get('/', (req, res) => {
             const localPath = storage.getLocalPath(rec.image_path) || rec.image_path;
             try {
               const rel = path.relative(storage.uploadsDir, localPath).replace(/\\/g, '/');
-              rec.image_url = rel.startsWith('..') ? `/api/purchases/asset/${rec.id}` : `/api/uploads/${rel}`;
+              rec.image_url = rel.startsWith('..') ? assetUrl : `/api/uploads/${rel}`;
             } catch (e) {
-              rec.image_url = `/api/purchases/asset/${rec.id}`;
+              rec.image_url = assetUrl;
             }
           }
         } else {

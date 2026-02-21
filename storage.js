@@ -111,7 +111,9 @@ function isRemoteUrl(storedPath) {
 function getLocalPath(storedPath) {
   if (!storedPath || isRemoteUrl(storedPath)) return null;
   if (path.isAbsolute(storedPath)) return storedPath;
-  return path.join(uploadsDir, path.basename(storedPath));
+  // Preserve subdirectory (e.g. purchases/filename.png)
+  const normalized = storedPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return path.join(uploadsDir, normalized);
 }
 
 /**
