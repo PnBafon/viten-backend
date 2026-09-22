@@ -20,6 +20,7 @@ router.post('/login', (req, res) => {
     [username],
     (err, user) => {
       if (err) {
+        console.error('Login query failed:', err.message);
         return res.status(500).json({ 
           success: false, 
           message: 'Database error' 

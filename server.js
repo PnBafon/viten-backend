@@ -56,18 +56,36 @@ if (!storage.useFtp) {
 
 /* ================= DATABASE INIT ================= */
 
-function initPostgresSchema(done) {
-  const run = (sql, cb) => db.run(sql, [], cb || (() => {}));
-  run(`CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) UNIQUE NOT NULL,
-    full_name VARCHAR(255) NOT NULL,
-    phone VARCHAR(100),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`, () => {
-    run(`CREATE TABLE IF NOT EXISTS income (
+function runSql(sql, params) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params || [], function onRun(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+
+function getSql(sql, params) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params || [], (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+}
+
+async function initPostgresSchema(done) {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(255) UNIQUE NOT NULL,
+      full_name VARCHAR(255) NOT NULL,
+      phone VARCHAR(100),
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS income (
       id SERIAL PRIMARY KEY,
       date VARCHAR(50) NOT NULL,
       name VARCHAR(255) NOT NULL,
@@ -82,112 +100,114 @@ function initPostgresSchema(done) {
       seller_name VARCHAR(255),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => {
-      run(`CREATE TABLE IF NOT EXISTS expenses (
-        id SERIAL PRIMARY KEY,
-        date VARCHAR(50) NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        amount DOUBLE PRECISION NOT NULL,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )`, () => {
-        run(`CREATE TABLE IF NOT EXISTS debts (
-          id SERIAL PRIMARY KEY,
-          date VARCHAR(50) NOT NULL,
-          name VARCHAR(255) NOT NULL,
-          pcs INTEGER NOT NULL DEFAULT 1,
-          unit_price DOUBLE PRECISION NOT NULL,
-          total_price DOUBLE PRECISION NOT NULL,
-          amount_payable_now DOUBLE PRECISION NOT NULL DEFAULT 0,
-          balance_owed DOUBLE PRECISION NOT NULL DEFAULT 0,
-          description TEXT,
-          customer_signature TEXT,
-          electronic_signature TEXT,
-          client_name VARCHAR(255),
-          client_phone VARCHAR(100),
-          seller_name VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`, () => {
-          run(`CREATE TABLE IF NOT EXISTS purchases (
-            id SERIAL PRIMARY KEY,
-            date VARCHAR(50) NOT NULL,
-            name VARCHAR(255) NOT NULL,
-            pcs INTEGER NOT NULL,
-            unit_price DOUBLE PRECISION NOT NULL,
-            total_amount DOUBLE PRECISION NOT NULL,
-            description TEXT,
-            supplier_name VARCHAR(255),
-            available_stock INTEGER DEFAULT 0,
-            stock_deficiency_threshold INTEGER DEFAULT 0,
-            image_path TEXT DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )`, () => {
-            run(`CREATE TABLE IF NOT EXISTS configuration (
-              id INTEGER PRIMARY KEY CHECK (id = 1),
-              app_name VARCHAR(255) DEFAULT 'Shop Accountant',
-              logo_path TEXT DEFAULT NULL,
-              location TEXT DEFAULT NULL,
-              items TEXT DEFAULT NULL,
-              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )`, () => {
-              run(`CREATE TABLE IF NOT EXISTS currencies (
-                id SERIAL PRIMARY KEY,
-                code VARCHAR(20) UNIQUE NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                symbol VARCHAR(20),
-                conversion_rate_to_fcfa DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-                is_default INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-              )`, () => {
-                run(`CREATE TABLE IF NOT EXISTS goals (
-                  id SERIAL PRIMARY KEY,
-                  date VARCHAR(50) NOT NULL,
-                  title VARCHAR(500) NOT NULL,
-                  desired_completion_date VARCHAR(50),
-                  content TEXT,
-                  status VARCHAR(20) DEFAULT 'active',
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )`, () => {
-                run(`CREATE TABLE IF NOT EXISTS debt_repayments (
-                  id SERIAL PRIMARY KEY,
-                  debt_id INTEGER NOT NULL,
-                  payment_date VARCHAR(50) NOT NULL,
-                  amount DOUBLE PRECISION NOT NULL,
-                  receipt_number VARCHAR(20),
-                  seller_name VARCHAR(255),
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )`, () => {
-                run('ALTER TABLE income ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
-                run('ALTER TABLE debts ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)', () => {});
-                run('ALTER TABLE purchases ADD COLUMN IF NOT EXISTS image_path TEXT DEFAULT NULL', () => {});
-                db.get('SELECT id FROM configuration WHERE id = 1', [], (err, row) => {
-                  if (!err && !row) {
-                    db.run('INSERT INTO configuration (id, app_name) VALUES (1, ?)', ['Shop Accountant'], () => {});
-                  }
-                  db.get('SELECT id FROM currencies WHERE code = ?', ['FCFA'], (e, r) => {
-                    if (!e && !r) {
-                      db.run('INSERT INTO currencies (code, name, symbol, conversion_rate_to_fcfa, is_default) VALUES (?, ?, ?, ?, ?)', ['FCFA', 'Central African CFA Franc', 'FCFA', 1.0, 1], () => {});
-                    }
-                    console.log('PostgreSQL schema ready');
-                    createDefaultAdmin();
-                    if (done) done();
-                  });
-                });
-              });
-            });
-          });
-        });
-      });
-    });
-  });
-  });
-});
+    )`,
+    `CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      date VARCHAR(50) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS debts (
+      id SERIAL PRIMARY KEY,
+      date VARCHAR(50) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      pcs INTEGER NOT NULL DEFAULT 1,
+      unit_price DOUBLE PRECISION NOT NULL,
+      total_price DOUBLE PRECISION NOT NULL,
+      amount_payable_now DOUBLE PRECISION NOT NULL DEFAULT 0,
+      balance_owed DOUBLE PRECISION NOT NULL DEFAULT 0,
+      description TEXT,
+      customer_signature TEXT,
+      electronic_signature TEXT,
+      client_name VARCHAR(255),
+      client_phone VARCHAR(100),
+      seller_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS purchases (
+      id SERIAL PRIMARY KEY,
+      date VARCHAR(50) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      pcs INTEGER NOT NULL,
+      unit_price DOUBLE PRECISION NOT NULL,
+      total_amount DOUBLE PRECISION NOT NULL,
+      description TEXT,
+      supplier_name VARCHAR(255),
+      available_stock INTEGER DEFAULT 0,
+      stock_deficiency_threshold INTEGER DEFAULT 0,
+      image_path TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS configuration (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      app_name VARCHAR(255) DEFAULT 'Shop Accountant',
+      logo_path TEXT DEFAULT NULL,
+      location TEXT DEFAULT NULL,
+      items TEXT DEFAULT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS currencies (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(20) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      symbol VARCHAR(20),
+      conversion_rate_to_fcfa DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+      is_default INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS goals (
+      id SERIAL PRIMARY KEY,
+      date VARCHAR(50) NOT NULL,
+      title VARCHAR(500) NOT NULL,
+      desired_completion_date VARCHAR(50),
+      content TEXT,
+      status VARCHAR(20) DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS debt_repayments (
+      id SERIAL PRIMARY KEY,
+      debt_id INTEGER NOT NULL,
+      payment_date VARCHAR(50) NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      receipt_number VARCHAR(20),
+      seller_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    'ALTER TABLE income ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)',
+    'ALTER TABLE debts ADD COLUMN IF NOT EXISTS seller_name VARCHAR(255)',
+    'ALTER TABLE purchases ADD COLUMN IF NOT EXISTS image_path TEXT DEFAULT NULL',
+  ];
+
+  try {
+    for (const sql of statements) {
+      await runSql(sql);
+    }
+    const configRow = await getSql('SELECT id FROM configuration WHERE id = 1');
+    if (!configRow) {
+      await runSql('INSERT INTO configuration (id, app_name) VALUES (1, ?)', ['Shop Accountant']);
+    }
+    const currencyRow = await getSql('SELECT id FROM currencies WHERE code = ?', ['FCFA']);
+    if (!currencyRow) {
+      await runSql(
+        'INSERT INTO currencies (code, name, symbol, conversion_rate_to_fcfa, is_default) VALUES (?, ?, ?, ?, ?)',
+        ['FCFA', 'Central African CFA Franc', 'FCFA', 1.0, 1]
+      );
+    }
+    console.log('PostgreSQL schema ready');
+    createDefaultAdmin();
+    if (done) done();
+  } catch (err) {
+    console.error('PostgreSQL schema init failed:', err.message);
+    process.exit(1);
+  }
 }
 
 function createDefaultAdmin() {
@@ -208,7 +228,12 @@ function createDefaultAdmin() {
 /* ================= ROUTES (mounted after DB init) ================= */
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK' });
+  db.ping((err) => {
+    if (err) {
+      return res.status(503).json({ status: 'ERROR', database: 'disconnected', message: err.message });
+    }
+    res.json({ status: 'OK', database: 'connected' });
+  });
 });
 
 /* ================= SERVE REACT BUILD ================= */
@@ -230,6 +255,8 @@ db.init((err) => {
   }
   console.log('Connected to PostgreSQL');
   function startServer() {
+    if (startServer.started) return;
+    startServer.started = true;
     app.use('/api/users', require('./routes/userRoutes'));
     app.use('/api/income', require('./routes/incomeRoutes'));
     app.use('/api/expenses', require('./routes/expensesRoutes'));
